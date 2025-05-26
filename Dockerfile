@@ -17,4 +17,4 @@ RUN uv pip install -e .
 EXPOSE ${PORT}
 
 # Command to run the MCP server
-CMD ["uv", "run", "src/main.py"]
+CMD ["uv", "run", "src/main_nifi1.py"]

@@ -1,12 +1,12 @@
 [project]
-name = "mem0-mcp"
+name = "nifi-mcp"
 version = "0.1.0"
 description = "MCP server for integrating long term memory into AI agents with Mem0"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
+    "loguru>=0.7.3",
     "mcp[cli]>=1.3.0",
-    "mem0ai>=0.1.88",
-    "vecs>=0.4.5"
+    "vecs>=0.4.5",
 ]

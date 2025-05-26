@@ -1,32 +1,27 @@
-<h1 align="center">MCP-Mem0: Long-Term Memory for AI Agents</h1>
+# MCP NiFi Server
 
-<p align="center">
-  <img src="public/Mem0AndMCP.png" alt="Mem0 and MCP Integration" width="600">
-</p>
-
-A template implementation of the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server integrated with [Mem0](https://mem0.ai) for providing AI agents with persistent memory capabilities.
-
-Use this as a reference point to build your MCP servers yourself, or give this as an example to an AI coding assistant and tell it to follow this example for structure and code correctness!
+A template implementation of the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server integrated with [Apache NiFi](https://nifi.apache.org/) for providing AI agents with data pipeline engineering capabilities.
 
 ## Overview
 
-This project demonstrates how to build an MCP server that enables AI agents to store, retrieve, and search memories using semantic search. It serves as a practical template for creating your own MCP servers, simply using Mem0 and a practical example.
+This project demonstrates how to build an MCP server that enables AI agents to interact with Apache NiFi instances through the NiFi REST API. It serves as a practical template for creating your own MCP servers, providing comprehensive NiFi management capabilities for AI-driven data pipeline automation.
 
 The implementation follows the best practices laid out by Anthropic for building MCP servers, allowing seamless integration with any MCP-compatible client.
 
 ## Features
 
-The server provides three essential memory management tools:
+The server provides essential NiFi management tools:
 
-1. **`save_memory`**: Store any information in long-term memory with semantic indexing
-2. **`get_all_memories`**: Retrieve all stored memories for comprehensive context
-3. **`search_memories`**: Find relevant memories using semantic search
+- **Process Group Management**: Get root process group ID, list and create process groups
+- **Processor Operations**: List, create, delete, and configure processors
+- **Connection Management**: Create and delete connections between processors
+- **Flow Discovery**: Get processor types and details
+- **Pipeline Automation**: Enable AI agents to build and manage NiFi data flows
 
 ## Prerequisites
 
 - Python 3.12+
-- Supabase or any PostgreSQL database (for vector storage of memories)
-- API keys for your chosen LLM provider (OpenAI, OpenRouter, or Ollama)
+- Apache NiFi instance (accessible via REST API)
 - Docker if running the MCP server as a container (recommended)
 
 ## Installation
@@ -38,29 +33,23 @@ The server provides three essential memory management tools:
    pip install uv
    ```
 
-2. Clone this repository:
-   ```bash
-   git clone https://github.com/coleam00/mcp-mem0.git
-   cd mcp-mem0
-   ```
-
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    uv pip install -e .
    ```
 
-4. Create a `.env` file based on `.env.example`:
+3. Create a `.env` file based on `.env.example`:
    ```bash
    cp .env.example .env
    ```
 
-5. Configure your environment variables in the `.env` file (see Configuration section)
+4. Configure your environment variables in the `.env` file (see Configuration section)
 
 ### Using Docker (Recommended)
 
 1. Build the Docker image:
    ```bash
-   docker build -t mcp/mem0 --build-arg PORT=8050 .
+   docker build -t mcp/nifi_nk --build-arg PORT=8050 .
    ```
 
 2. Create a `.env` file based on `.env.example` and configure your environment variables
@@ -74,12 +63,10 @@ The following environment variables can be configured in your `.env` file:
 | `TRANSPORT` | Transport protocol (sse or stdio) | `sse` |
 | `HOST` | Host to bind to when using SSE transport | `0.0.0.0` |
 | `PORT` | Port to listen on when using SSE transport | `8050` |
-| `LLM_PROVIDER` | LLM provider (openai, openrouter, or ollama) | `openai` |
-| `LLM_BASE_URL` | Base URL for the LLM API | `https://api.openai.com/v1` |
-| `LLM_API_KEY` | API key for the LLM provider | `sk-...` |
-| `LLM_CHOICE` | LLM model to use | `gpt-4o-mini` |
-| `EMBEDDING_MODEL_CHOICE` | Embedding model to use | `text-embedding-3-small` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:port/db` |
+| `NIFI_BASE_URL` | Base URL for the NiFi API | `https://localhost:8443/nifi-api` |
+| `NIFI_USERNAME` | Username for the NiFi API | `your-nifi-username` |
+| `NIFI_PASSWORD` | Password for the NiFi API | `your-nifi-password` |
+| `NIFI_TLS_VERIFY` | Verify TLS certificates | `True` / `False` |
 
 ## Running the Server
 
@@ -89,28 +76,34 @@ The following environment variables can be configured in your `.env` file:
 
 ```bash
 # Set TRANSPORT=sse in .env then:
-uv run src/main.py
+uv run src/main_nifi1.py
 ```
 
-The MCP server will essentially be run as an API endpoint that you can then connect to with config shown below.
+The MCP server will be run as an API endpoint that you can then connect to with the configuration shown below.
 
 #### Stdio Transport
 
-With stdio, the MCP client iself can spin up the MCP server, so nothing to run at this point.
+With stdio, the MCP client itself can spin up the MCP server, so nothing to run at this point.
 
 ### Using Docker
+
+#### Build
+
+```bash
+docker build --tag 'mcp/nifi_nk' .
+```
 
 #### SSE Transport
 
 ```bash
-docker run --env-file .env -p:8050:8050 mcp/mem0
+docker run --env-file .env -p 8050:8050 mcp/nifi_nk
 ```
 
-The MCP server will essentially be run as an API endpoint within the container that you can then connect to with config shown below.
+The MCP server will be run as an API endpoint within the container that you can then connect to with the configuration shown below.
 
 #### Stdio Transport
 
-With stdio, the MCP client iself can spin up the MCP server container, so nothing to run at this point.
+With stdio, the MCP client itself can spin up the MCP server container, so nothing to run at this point.
 
 ## Integration with MCP Clients
 
@@ -121,7 +114,7 @@ Once you have the server running with SSE transport, you can connect to it using
 ```json
 {
   "mcpServers": {
-    "mem0": {
+    "nifi_nk": {
       "transport": "sse",
       "url": "http://localhost:8050/sse"
     }
@@ -133,7 +126,7 @@ Once you have the server running with SSE transport, you can connect to it using
 > ```json
 > {
 >   "mcpServers": {
->     "mem0": {
+>     "nifi_nk": {
 >       "transport": "sse",
 >       "serverUrl": "http://localhost:8050/sse"
 >     }
@@ -141,9 +134,9 @@ Once you have the server running with SSE transport, you can connect to it using
 > }
 > ```
 
-> **Note for n8n users**: Use host.docker.internal instead of localhost since n8n has to reach outside of it's own container to the host machine:
+> **Note for n8n users**: Use `host.docker.internal` instead of `localhost` since n8n has to reach outside of its own container to the host machine:
 > 
-> So the full URL in the MCP node would be: http://host.docker.internal:8050/sse
+> So the full URL in the MCP node would be: `http://host.docker.internal:8050/sse`
 
 Make sure to update the port if you are using a value other than the default 8050.
 
@@ -154,17 +147,15 @@ Add this server to your MCP configuration for Claude Desktop, Windsurf, or any o
 ```json
 {
   "mcpServers": {
-    "mem0": {
-      "command": "your/path/to/mcp-mem0/.venv/Scripts/python.exe",
-      "args": ["your/path/to/mcp-mem0/src/main.py"],
+    "nifi_nk": {
+      "command": "your/path/to/nifi_nk/.venv/Scripts/python.exe",
+      "args": ["your/path/to/nifi_nk/src/main_nifi1.py"],
       "env": {
         "TRANSPORT": "stdio",
-        "LLM_PROVIDER": "openai",
-        "LLM_BASE_URL": "https://api.openai.com/v1",
-        "LLM_API_KEY": "YOUR-API-KEY",
-        "LLM_CHOICE": "gpt-4o-mini",
-        "EMBEDDING_MODEL_CHOICE": "text-embedding-3-small",
-        "DATABASE_URL": "YOUR-DATABASE-URL"
+        "NIFI_BASE_URL": "https://localhost:8443/nifi-api",
+        "NIFI_USERNAME": "your-nifi-username",
+        "NIFI_PASSWORD": "your-nifi-password",
+        "NIFI_TLS_VERIFY": "False"
       }
     }
   }
@@ -176,30 +167,41 @@ Add this server to your MCP configuration for Claude Desktop, Windsurf, or any o
 ```json
 {
   "mcpServers": {
-    "mem0": {
+    "nifi_nk": {
       "command": "docker",
       "args": ["run", "--rm", "-i", 
                "-e", "TRANSPORT", 
-               "-e", "LLM_PROVIDER", 
-               "-e", "LLM_BASE_URL", 
-               "-e", "LLM_API_KEY", 
-               "-e", "LLM_CHOICE", 
-               "-e", "EMBEDDING_MODEL_CHOICE", 
-               "-e", "DATABASE_URL", 
-               "mcp/mem0"],
+               "-e", "NIFI_BASE_URL", 
+               "-e", "NIFI_USERNAME", 
+               "-e", "NIFI_PASSWORD", 
+               "-e", "NIFI_TLS_VERIFY", 
+               "mcp/nifi_nk"],
       "env": {
         "TRANSPORT": "stdio",
-        "LLM_PROVIDER": "openai",
-        "LLM_BASE_URL": "https://api.openai.com/v1",
-        "LLM_API_KEY": "YOUR-API-KEY",
-        "LLM_CHOICE": "gpt-4o-mini",
-        "EMBEDDING_MODEL_CHOICE": "text-embedding-3-small",
-        "DATABASE_URL": "YOUR-DATABASE-URL"
+        "NIFI_BASE_URL": "https://localhost:8443/nifi-api",
+        "NIFI_USERNAME": "your-nifi-username",
+        "NIFI_PASSWORD": "your-nifi-password",
+        "NIFI_TLS_VERIFY": "False"
       }
     }
   }
 }
 ```
+
+## Available Tools
+
+The MCP server provides the following tools for NiFi management:
+
+- `get_root_process_group_id`: Get the root process group ID
+- `list_processors`: List all processors in a process group
+- `create_processor`: Create a new processor
+- `delete_processor`: Delete an existing processor
+- `get_processor_details`: Get detailed information about a processor
+- `create_connection`: Create connections between processors
+- `delete_connection`: Delete existing connections
+- `get_process_groups`: List process groups
+- `create_process_group`: Create new process groups
+- `get_processor_types`: Get available processor types
 
 ## Building Your Own Server
 
@@ -208,4 +210,8 @@ This template provides a foundation for building more complex MCP servers. To bu
 1. Add your own tools by creating methods with the `@mcp.tool()` decorator
 2. Create your own lifespan function to add your own dependencies (clients, database connections, etc.)
 3. Modify the `utils.py` file for any helper functions you need for your MCP server
-4. Feel free to add prompts and resources as well  with `@mcp.resource()` and `@mcp.prompt()`
+4. Feel free to add prompts and resources as well with `@mcp.resource()` and `@mcp.prompt()`
+
+## License
+
+This project is licensed under the terms specified in the LICENSE file.

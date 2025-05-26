@@ -1,102 +1,127 @@
-from mem0 import Memory
+import os
+# import logging # Remove standard logging
+from loguru import logger # Import Loguru logger
+import httpx
+from dotenv import load_dotenv # Removed dotenv
+import uuid # Import uuid for client ID generation
+from typing import Optional, Dict, Any, Union, List, Literal # Add Union and List
+from mcp.server.fastmcp.exceptions import ToolError # Import ToolError
 import os
 
-# Custom instructions for memory processing
-# These aren't being used right now but Mem0 does support adding custom prompting
-# for handling memory retrieval and processing.
-CUSTOM_INSTRUCTIONS = """
-Extract the Following Information:  
+# Load environment variables from .env file - REMOVED
 
-- Key Information: Identify and save the most important details.
-- Context: Capture the surrounding context to understand the memory's relevance.
-- Connections: Note any relationships to other topics or memories.
-- Importance: Highlight why this information might be valuable in the future.
-- Source: Record where this information came from when applicable.
-"""
 
-def get_mem0_client():
-    # Get LLM provider and configuration
-    llm_provider = os.getenv('LLM_PROVIDER')
-    llm_api_key = os.getenv('LLM_API_KEY')
-    llm_model = os.getenv('LLM_CHOICE')
-    embedding_model = os.getenv('EMBEDDING_MODEL_CHOICE')
+# Set up logging - REMOVED standard logging setup
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
+
+class NiFiAuthenticationError(Exception):
+    """Raised when there is an error authenticating with NiFi."""
+    pass
+
+class NiFiClient:
+    """A simple asynchronous client for the NiFi REST API."""
+
+    def __init__(self, base_url: str, username: Optional[str] = None, password: Optional[str] = None, tls_verify: bool = True):
+        """Initializes the NiFiClient.
+
+        Args:
+            base_url: The base URL of the NiFi API (e.g., "https://localhost:8443/nifi-api"). Required.
+            username: The username for NiFi authentication. Required if password is provided.
+            password: The password for NiFi authentication. Required if username is provided.
+            tls_verify: Whether to verify the server's TLS certificate. Defaults to True.
+        """
+        if not base_url:
+            raise ValueError("base_url is required for NiFiClient")
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+        self.tls_verify = tls_verify
+        self._client = None
+        self._token = None
+        # Generate a unique client ID for this instance, used for revisions
+        self._client_id = str(uuid.uuid4())
+        logger.info(f"NiFiClient initialized for {self.base_url} with client ID: {self._client_id}")
+
+    @property
+    def is_authenticated(self) -> bool:
+        """Checks if the client currently holds an authentication token."""
+        return self._token is not None
+
+    async def _get_client(self):
+        """Returns an httpx client instance, configuring auth if token exists."""
+        # Always create a new client instance to ensure headers are fresh,
+        # especially after authentication. If performance becomes an issue,
+        # we could optimize, but this ensures correctness.
+        if self._client:
+             await self._client.aclose() # Ensure old connection is closed if recreating
+             self._client = None
+
+        headers = {}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+            # NiFi often requires client ID for state changes, let's check if we need it here
+            # Might need to parse initial response or call another endpoint if needed.
+
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            verify=self.tls_verify,
+            headers=headers,
+            timeout=30.0 # Keep timeout
+        )
+        return self._client
     
-    # Initialize config dictionary
-    config = {}
-    
-    # Configure LLM based on provider
-    if llm_provider == 'openai' or llm_provider == 'openrouter':
-        config["llm"] = {
-            "provider": "openai",
-            "config": {
-                "model": llm_model,
-                "temperature": 0.2,
-                "max_tokens": 2000,
-            }
-        }
-        
-        # Set API key in environment if not already set
-        if llm_api_key and not os.environ.get("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = llm_api_key
+    async def authenticate(self):
+        """Authenticates with NiFi and stores the token."""
+        # Use a temporary client for the auth request itself, as it doesn't need the token header
+        async with httpx.AsyncClient(base_url=self.base_url, verify=self.tls_verify) as auth_client:
+            endpoint = "/access/token"
+            try:
+                logger.info(f"Authenticating with NiFi at {self.base_url}{endpoint}")
+                response = await auth_client.post(
+                    endpoint,
+                    data={"username": self.username, "password": self.password},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"} # Correct header for form data
+                )
+                response.raise_for_status()
+                self._token = response.text # Store the token
+                logger.info("Authentication successful.")
+
+                # Force recreation of the main client with the token on next call to _get_client
+                if self._client:
+                    await self._client.aclose()
+                self._client = None
+
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Authentication failed: {e.response.status_code} - {e.response.text}")
+                raise NiFiAuthenticationError(f"Authentication failed: {e.response.status_code}") from e
+            except httpx.RequestError as e:
+                logger.error(f"An error occurred during authentication: {e}")
+                raise NiFiAuthenticationError(f"An error occurred during authentication: {e}") from e
+            except Exception as e:
+                logger.error(f"An unexpected error occurred during authentication: {e}", exc_info=True)
+                raise NiFiAuthenticationError(f"An unexpected error occurred during authentication: {e}")
             
-        # For OpenRouter, set the specific API key
-        if llm_provider == 'openrouter' and llm_api_key:
-            os.environ["OPENROUTER_API_KEY"] = llm_api_key
-    
-    elif llm_provider == 'ollama':
-        config["llm"] = {
-            "provider": "ollama",
-            "config": {
-                "model": llm_model,
-                "temperature": 0.2,
-                "max_tokens": 2000,
-            }
-        }
-        
-        # Set base URL for Ollama if provided
-        llm_base_url = os.getenv('LLM_BASE_URL')
-        if llm_base_url:
-            config["llm"]["config"]["ollama_base_url"] = llm_base_url
-    
-    # Configure embedder based on provider
-    if llm_provider == 'openai':
-        config["embedder"] = {
-            "provider": "openai",
-            "config": {
-                "model": embedding_model or "text-embedding-3-small",
-                "embedding_dims": 1536  # Default for text-embedding-3-small
-            }
-        }
-        
-        # Set API key in environment if not already set
-        if llm_api_key and not os.environ.get("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = llm_api_key
-    
-    elif llm_provider == 'ollama':
-        config["embedder"] = {
-            "provider": "ollama",
-            "config": {
-                "model": embedding_model or "nomic-embed-text",
-                "embedding_dims": 768  # Default for nomic-embed-text
-            }
-        }
-        
-        # Set base URL for Ollama if provided
-        embedding_base_url = os.getenv('LLM_BASE_URL')
-        if embedding_base_url:
-            config["embedder"]["config"]["ollama_base_url"] = embedding_base_url
-    
-    # Configure Supabase vector store
-    config["vector_store"] = {
-        "provider": "supabase",
-        "config": {
-            "connection_string": os.environ.get('DATABASE_URL', ''),
-            "collection_name": "mem0_memories",
-            "embedding_model_dims": 1536 if llm_provider == "openai" else 768
-        }
-    }
+    def __repr__(self):
+        return f"<{type(self).__name__} base_url={self.base_url} authenticated={self.is_authenticated}>"
 
-    # config["custom_fact_extraction_prompt"] = CUSTOM_INSTRUCTIONS
+async def get_nifi_client(base_url: str, username: str, password: str, tls_verify: bool) -> NiFiClient:
+    """Returns a NiFiClient instance.
     
-    # Create and return the Memory client
-    return Memory.from_config(config)
+    Args:
+        base_url: The base URL of the NiFi API
+        username: The username for NiFi authentication
+        password: The password for NiFi authentication
+        tls_verify: If True, verifies TLS certificate. If False, disables verification.
+                   Can also be a path to a CA bundle.
+    """
+    
+    nifi = NiFiClient(
+        base_url=base_url,
+        username=username,
+        password=password,
+        tls_verify=tls_verify
+    )
+    await nifi.authenticate()
+    
+    return nifi
