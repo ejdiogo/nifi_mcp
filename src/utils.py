@@ -2,14 +2,14 @@ import os
 # import logging # Remove standard logging
 from loguru import logger # Import Loguru logger
 import httpx
-from dotenv import load_dotenv # Removed dotenv
+from dotenv import load_dotenv
 import uuid # Import uuid for client ID generation
 from typing import Optional, Dict, Any, Union, List, Literal # Add Union and List
 from mcp.server.fastmcp.exceptions import ToolError # Import ToolError
 import os
 
-# Load environment variables from .env file - REMOVED
-
+# Load environment variables from .env file
+#load_dotenv()
 
 # Set up logging - REMOVED standard logging setup
 # logging.basicConfig(level=logging.INFO)
@@ -74,18 +74,43 @@ class NiFiClient:
     async def authenticate(self):
         """Authenticates with NiFi and stores the token."""
         # Use a temporary client for the auth request itself, as it doesn't need the token header
-        async with httpx.AsyncClient(base_url=self.base_url, verify=self.tls_verify) as auth_client:
+        async with httpx.AsyncClient(base_url=self.base_url, verify=self.tls_verify, timeout=30.0) as auth_client:
             endpoint = "/access/token"
             try:
                 logger.info(f"Authenticating with NiFi at {self.base_url}{endpoint}")
+                logger.debug(f"Username: {self.username}")
+                logger.debug(f"Password length: {len(self.password) if self.password else 0}")
+                
+                # Prepare the form data - according to NiFi 1.28.0 API docs
+                # The endpoint expects: Content-Type: application/x-www-form-urlencoded
+                # Parameters: username (formData), password (formData)
+                form_data = {
+                    "username": self.username,
+                    "password": self.password
+                }
+                
+                # Use httpx's built-in form encoding
                 response = await auth_client.post(
                     endpoint,
-                    data={"username": self.username, "password": self.password},
-                    headers={"Content-Type": "application/x-www-form-urlencoded"} # Correct header for form data
+                    data=form_data,  # httpx will automatically set Content-Type to application/x-www-form-urlencoded
+                    timeout=30.0
                 )
+                
+                logger.debug(f"Auth request URL: {auth_client.base_url}{endpoint}")
+                logger.debug(f"Auth request Content-Type: application/x-www-form-urlencoded")
+                logger.debug(f"Auth response status: {response.status_code}")
+                logger.debug(f"Auth response headers: {dict(response.headers)}")
+                logger.debug(f"Auth response content length: {len(response.content)}")
+                
+                if response.status_code != 200:
+                    logger.error(f"Authentication failed with status {response.status_code}")
+                    logger.error(f"Response text: {response.text}")
+                    logger.error(f"Response headers: {dict(response.headers)}")
+                
                 response.raise_for_status()
-                self._token = response.text # Store the token
+                self._token = response.text.strip()  # Store the token and strip any whitespace
                 logger.info("Authentication successful.")
+                logger.debug(f"Token received (first 50 chars): {self._token[:50]}...")
 
                 # Force recreation of the main client with the token on next call to _get_client
                 if self._client:
@@ -93,8 +118,16 @@ class NiFiClient:
                 self._client = None
 
             except httpx.HTTPStatusError as e:
-                logger.error(f"Authentication failed: {e.response.status_code} - {e.response.text}")
-                raise NiFiAuthenticationError(f"Authentication failed: {e.response.status_code}") from e
+                error_details = {
+                    "status_code": e.response.status_code,
+                    "response_text": e.response.text,
+                    "response_headers": dict(e.response.headers),
+                    "request_url": str(e.request.url),
+                    "request_method": e.request.method,
+                }
+                logger.error(f"Authentication failed: {error_details}")
+                logger.debug(f"Request data sent: username={self.username}, password={'*' * len(self.password) if self.password else 'None'}")
+                raise NiFiAuthenticationError(f"Authentication failed: {e.response.status_code} - {e.response.text}") from e
             except httpx.RequestError as e:
                 logger.error(f"An error occurred during authentication: {e}")
                 raise NiFiAuthenticationError(f"An error occurred during authentication: {e}") from e
@@ -115,6 +148,11 @@ async def get_nifi_client(base_url: str, username: str, password: str, tls_verif
         tls_verify: If True, verifies TLS certificate. If False, disables verification.
                    Can also be a path to a CA bundle.
     """
+    
+    logger.info(f"Creating NiFi client with base_url: {base_url}")
+    logger.debug(f"Username: {username}")
+    logger.debug(f"Password provided: {bool(password)}")
+    logger.debug(f"TLS verify: {tls_verify}")
     
     nifi = NiFiClient(
         base_url=base_url,

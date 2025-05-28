@@ -12,8 +12,15 @@ import os
 import httpx
 from typing import Dict, List, Union
 
+load_dotenv(override=True)
 
-load_dotenv()
+# Configure loguru for debug level
+logger.remove()  # Remove default handler
+logger.add(
+    lambda msg: print(msg, end=""),
+    level="DEBUG",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
 
 # # Create a dataclass for our application context
 @dataclass
@@ -32,11 +39,13 @@ async def nifi_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         Mem0Context: The context containing the nifi client
     """
     # Create and return the Memory client with the helper function in utils.py
+    # Load environment variables
+    
     nifi = await get_nifi_client(
         base_url=os.getenv("NIFI_BASE_URL"),
         username=os.getenv("NIFI_USERNAME"),
         password=os.getenv("NIFI_PASSWORD"),
-        tls_verify=False
+        tls_verify=os.getenv("NIFI_TLS_VERIFY", "false").lower() == "true"
     )
     
     try:
@@ -51,7 +60,7 @@ mcp = FastMCP(
     description="MCP server for operating on NiFi MVP",
     lifespan=nifi_lifespan,
     host=os.getenv("HOST", "127.0.0.1"),
-    port=os.getenv("PORT", "8050")
+    port=int(os.getenv("PORT", "8050"))
 )        
 
 # Access type-safe lifespan context in tools

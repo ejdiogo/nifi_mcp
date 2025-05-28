@@ -21,7 +21,7 @@ async def nifi_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         base_url=os.getenv("NIFI_BASE_URL"),
         username=os.getenv("NIFI_USERNAME"),
         password=os.getenv("NIFI_PASSWORD"),
-        tls_verify=False
+        tls_verify=os.getenv("NIFI_TLS_VERIFY", "false").lower() == "true"
     )
     try:
         yield AppContext(nifi_client=nifi)
